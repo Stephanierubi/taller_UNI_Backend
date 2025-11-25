@@ -1,0 +1,121 @@
+# Nombre del workflow que aparecerá en la pestaña Actions de GitHub
+name: CI/CD Pipeline
+
+# Define cuándo se ejecutará este workflow
+on:
+  push:
+    branches:
+      - main
+      - develop # Rama principal de desarrollo
+
+env:
+  NODE_VERSION: '20.x' # Versión de Node.js a utilizar
+
+# Define los trabajos (jobs) para todos los pasos
+jobs:
+  # JOB 1: LINTING Y VERIFICACIÓN DE CÓDIGO
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest # Sistema operativo donde se ejecutará
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Ejecuta ESLint para verificar la calidad del código
+      - name: Run ESLint
+        run: npm run lint
+
+  # JOB 2: BUILD DEL PROYECTO
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Genera el cliente de Prisma (necesario para el build)
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # Compila la aplicación NextJS
+      - name: Build project
+        run: npm run build
+
+      # Guarda los artefactos del build para usarlos en otros jobs
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1 # Mantiene los artefactos por 1 día
+
+  # JOB 3: TESTS UNITARIOS
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: build # Espera que el build termine
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Genera el cliente de Prisma
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # Ejecuta los tests unitarios con Jest
+      - name: Run unit tests
+        run: npm run test
+
+      # Ejecuta los tests con cobertura de código
+      - name: Run tests with coverage
+        run: npm run test -- --coverage
+
+      # Sube el reporte de cobertura como artefacto
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  # JOB 4: NOTIFICACIÓN DE ESTADO (OPCIONAL)
+  notify:
+    name: Notify Status
+    runs-on: ubuntu-latest
+    needs: [test] # Se ejecuta siempre, incluso si hay fallos
+
+    steps:
+      - name: Check workflow status
+        run: |
+          echo "Pipeline execution completed!"
+          echo "Deploy status: ${{ needs.build.result }}"
